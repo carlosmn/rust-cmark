@@ -1,14 +1,10 @@
-#[crate_name = "cmark"]
-#[crate_type = "dylib"]
 extern crate libc;
-
-use std::mem;
 
 mod ffi;
 
-#[repr(u32)]
-pub enum NodeType {
-    Document,
+#[deriving(Show, PartialEq)]
+pub enum Node {
+    Document(DocumentNode),
     BQuote,
     List,
     ListItem,
@@ -16,13 +12,13 @@ pub enum NodeType {
     IndentedCode,
     HTML,
     Paragraph,
-    AtxHeader,
-    SettextHeader,
+    AtxHeader{level: uint},
+    SetextHeader{level: uint},
     HRule,
     ReferenceDef,
     FirstBlock,
     LastBlock,
-    String,
+    String(String),
     Softbreak,
     Linebreak,
     InlineCode,
@@ -35,13 +31,42 @@ pub enum NodeType {
     LastInline,
 }
 
-pub struct Node {
+impl Node {
+    fn level(raw: *mut ffi::cmark_node) -> uint {
+        unsafe {
+            ffi::cmark_node_get_header_level(raw) as uint
+        }
+    }
+
+    fn from_raw(raw: *mut ffi::cmark_node) -> Node {
+        match unsafe { ffi::cmark_node_get_type(raw) } {
+            ffi::CMARK_NODE_DOCUMENT => Node::Document(DocumentNode::from_raw(raw)),
+            ffi::CMARK_NODE_ATX_HEADER => Node::AtxHeader{level: Node::level(raw)},
+            ffi::CMARK_NODE_SETEXT_HEADER => Node::SetextHeader{level: Node::level(raw)},
+            _ => panic!(),
+        }
+    }
+}
+
+#[deriving(Show)]
+pub struct DocumentNode {
     raw: *mut ffi::cmark_node
 }
 
-impl Node {
-    pub fn kind(&self) -> NodeType {
-        unsafe { mem::transmute(ffi::cmark_node_get_type(self.raw)) }
+impl DocumentNode {
+    pub fn from_raw(raw: *mut ffi::cmark_node) -> DocumentNode {
+        assert!(unsafe { ffi::cmark_node_get_type(raw) } == ffi::CMARK_NODE_DOCUMENT);
+        DocumentNode { raw: raw }
+    }
+
+    pub fn first_child(&self) -> Node {
+        Node::from_raw(unsafe { ffi::cmark_node_first_child(self.raw ) })
+    }
+}
+
+impl PartialEq for DocumentNode {
+    fn eq(&self, other: &DocumentNode) -> bool {
+        self.raw == other.raw
     }
 }
 
@@ -54,9 +79,9 @@ impl Parser {
         Parser { raw: unsafe { ffi::cmark_new_doc_parser() } }
     }
 
-    pub fn parse_document(data: &[u8]) -> Node {
+    pub fn parse_document(data: &[u8]) -> DocumentNode {
         unsafe {
-            Node {raw: ffi::cmark_parse_document(data.as_ptr(), data.len() as libc::size_t) }
+            DocumentNode {raw: ffi::cmark_parse_document(data.as_ptr(), data.len() as libc::size_t) }
         }
     }
 }
@@ -67,6 +92,30 @@ impl Drop for Parser {
     }
 }
 
+#[cfg(test)]
+const DOCUMENT: &'static str =
+r####"## Header
+* Item 1
+* Item 2
+
+2. Item 1
+
+3. Item 2
+
+    code
+
+``` lang
+fenced
+```
+
+    <div>html</div>
+
+[link url](url 'title')
+"####;
+
 #[test]
-fn it_works() {
+fn parse_document() {
+    let doc = Parser::parse_document(DOCUMENT.as_bytes());
+    let child = doc.first_child();
+    assert_eq!(Node::AtxHeader{ level: 2 }, child);
 }
