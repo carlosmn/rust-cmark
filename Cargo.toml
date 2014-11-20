@@ -1,0 +1,5 @@
+[package]
+
+name = "cmark"
+version = "0.0.1"
+authors = ["Carlos Martín Nieto <cmn@dwim.me>"]
