@@ -13,7 +13,7 @@ pub enum Node {
     ListItem,
     FencedCode(string::String, string::String),
     IndentedCode(string::String),
-    HTML,
+    HTML(string::String),
     Paragraph(Vec<Node>),
     AtxHeader(uint, string::String),
     SetextHeader(uint, string::String),
@@ -28,7 +28,7 @@ pub enum Node {
     InlineHTML,
     Emph,
     Strong,
-    Link{url: String, title: String},
+    Link(string::String, string::String, Box<Node>),
     Image,
     FirstInline,
     LastInline,
@@ -96,6 +96,17 @@ impl Node {
                 Node::FencedCode(string::raw::from_buf(ffi::cmark_node_get_fence_info(raw) as *const u8),
                                  Node::string_content(raw))
             },
+            ffi::CMARK_NODE_HTML => Node::HTML(Node::string_content(raw)),
+            ffi::CMARK_NODE_LINK => {
+                let url = unsafe {
+                    string::raw::from_buf(ffi::cmark_node_get_url(raw) as *const u8)
+                };
+                let title = unsafe {
+                    string::raw::from_buf(ffi::cmark_node_get_title(raw) as *const u8)
+                };
+                let child = unsafe { ffi::cmark_node_first_child(raw) };
+                Node::Link(url, title, box Node::from_raw(child))
+            },
             _ => Node::NotReallyANode,
             //_ => panic!(),
         }
@@ -144,31 +155,28 @@ r####"## Header
 fenced
 ```
 
-    <div>html</div>
+<div>html</div>
 
-[link url](url 'title')
+[link](url 'title')
 "####;
 
 #[test]
 fn parse_document() {
     let doc = Parser::parse_document(DOCUMENT.as_bytes());
-    let children = match doc {
-        Node::Document(ref children) => children,
-        _ => panic!(),
-    };
-    assert_eq!(Node::AtxHeader(2, "Header".to_string()), children[0]);
-    let bullet_list =
+    let expected = Node::Document(vec![
+        Node::AtxHeader(2, "Header".to_string()),
         Node::BulletList{tight: true,
                          items: vec![Node::Paragraph(vec![Node::String("Item 1".to_string())]),
-                                     Node::Paragraph(vec![Node::String("Item 2".to_string())])]};
-    assert_eq!(bullet_list, children[1]);
-
-    let ordered_list =
+                                     Node::Paragraph(vec![Node::String("Item 2".to_string())])]},
         Node::OrderedList{tight: false, start: 2,
                           items: vec![Node::Paragraph(vec![Node::String("Item 1".to_string())]),
-                                      Node::Paragraph(vec![Node::String("Item 2".to_string())])]};
-    assert_eq!(ordered_list, children[2]);
-
-    assert_eq!(Node::IndentedCode("code\n".to_string()), children[3]);
-    assert_eq!(Node::FencedCode("lang".to_string(), "fenced\n".to_string()), children[4]);
+                                      Node::Paragraph(vec![Node::String("Item 2".to_string())])]},
+        Node::IndentedCode("code\n".to_string()),
+        Node::FencedCode("lang".to_string(), "fenced\n".to_string()),
+        Node::HTML("<div>html</div>\n".to_string()),
+        Node::Paragraph(
+            vec![Node::Link("url".to_string(), "title".to_string(),
+                            box Node::String("link".to_string()))])
+            ]);
+    assert_eq!(expected, doc);
 }
