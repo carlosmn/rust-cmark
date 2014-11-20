@@ -14,7 +14,7 @@ pub enum Node {
     FencedCode,
     IndentedCode,
     HTML,
-    Paragraph,
+    Paragraph(Vec<Node>),
     AtxHeader(uint, string::String),
     SetextHeader(uint, string::String),
     HRule,
@@ -32,6 +32,7 @@ pub enum Node {
     Image,
     FirstInline,
     LastInline,
+    NotReallyANode,
 }
 
 impl Node {
@@ -45,10 +46,6 @@ impl Node {
             }
         }
         vec
-    }
-
-    fn new_document(raw: *mut ffi::cmark_node) -> Node {
-        Node::Document(Node::children(raw))
     }
 
     fn new_list(raw: *mut ffi::cmark_node) -> Node {
@@ -82,10 +79,17 @@ impl Node {
     fn from_raw(raw: *mut ffi::cmark_node) -> Node {
         let kind = unsafe { ffi::cmark_node_get_type(raw) };
         match kind {
-            ffi::CMARK_NODE_DOCUMENT => Node::new_document(raw),
+            ffi::CMARK_NODE_DOCUMENT => Node::Document(Node::children(raw)),
             ffi::CMARK_NODE_ATX_HEADER | ffi::CMARK_NODE_SETEXT_HEADER => Node::new_header(raw, kind),
             ffi::CMARK_NODE_LIST => Node::new_list(raw),
-            _ => Node::LastBlock,
+            ffi::CMARK_NODE_LIST_ITEM => Node::from_raw(unsafe{ffi::cmark_node_first_child(raw)}),
+            ffi::CMARK_NODE_PARAGRAPH => Node::Paragraph(Node::children(raw)),
+            ffi::CMARK_NODE_STRING => {
+                Node::String(unsafe {
+                    string::raw::from_buf(ffi::cmark_node_get_string_content(raw) as *const u8)
+                })
+            },
+            _ => Node::NotReallyANode,
             //_ => panic!(),
         }
     }
@@ -145,4 +149,21 @@ fn parse_document() {
         _ => panic!(),
     };
     assert_eq!(Node::AtxHeader(2, "Header".to_string()), children[0]);
+    match children[1] {
+        Node::BulletList{tight, ref items} => {
+            assert_eq!(true, tight);
+            assert_eq!(2, items.len());
+            assert_eq!(Node::Paragraph(vec![Node::String("Item 1".to_string())]), items[0]);
+            assert_eq!(Node::Paragraph(vec![Node::String("Item 2".to_string())]), items[1]);
+        },
+        _ => panic!(),
+    }
+    match children[2] {
+        Node::OrderedList(tight, start, ref items) => {
+            assert_eq!(false, tight);
+            assert_eq!(2, start);
+            assert_eq!(2, items.len());
+        },
+        _ => panic!(),
+    }
 }
