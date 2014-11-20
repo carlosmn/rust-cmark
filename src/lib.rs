@@ -28,7 +28,7 @@ pub enum Node {
     InlineHTML,
     Emph,
     Strong,
-    Link(string::String, string::String, Box<Node>),
+    Link(string::String, Option<string::String>, Box<Node>),
     Image,
     FirstInline,
     LastInline,
@@ -102,7 +102,12 @@ impl Node {
                     string::raw::from_buf(ffi::cmark_node_get_url(raw) as *const u8)
                 };
                 let title = unsafe {
-                    string::raw::from_buf(ffi::cmark_node_get_title(raw) as *const u8)
+                    let ptr = ffi::cmark_node_get_title(raw) as *const u8;
+                    if ptr.is_null() {
+                        None
+                    } else {
+                        Some(string::raw::from_buf(ptr))
+                    }
                 };
                 let child = unsafe { ffi::cmark_node_first_child(raw) };
                 Node::Link(url, title, box Node::from_raw(child))
@@ -175,7 +180,7 @@ fn parse_document() {
         Node::FencedCode("lang".to_string(), "fenced\n".to_string()),
         Node::HTML("<div>html</div>\n".to_string()),
         Node::Paragraph(
-            vec![Node::Link("url".to_string(), "title".to_string(),
+            vec![Node::Link("url".to_string(), Some("title".to_string()),
                             box Node::String("link".to_string()))])
             ]);
     assert_eq!(expected, doc);
