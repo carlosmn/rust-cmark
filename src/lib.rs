@@ -149,21 +149,15 @@ fn parse_document() {
         _ => panic!(),
     };
     assert_eq!(Node::AtxHeader(2, "Header".to_string()), children[0]);
-    match children[1] {
-        Node::BulletList{tight, ref items} => {
-            assert_eq!(true, tight);
-            assert_eq!(2, items.len());
-            assert_eq!(Node::Paragraph(vec![Node::String("Item 1".to_string())]), items[0]);
-            assert_eq!(Node::Paragraph(vec![Node::String("Item 2".to_string())]), items[1]);
-        },
-        _ => panic!(),
-    }
-    match children[2] {
-        Node::OrderedList(tight, start, ref items) => {
-            assert_eq!(false, tight);
-            assert_eq!(2, start);
-            assert_eq!(2, items.len());
-        },
-        _ => panic!(),
-    }
+    let bullet_list =
+        Node::BulletList{tight: true,
+                         items: vec![Node::Paragraph(vec![Node::String("Item 1".to_string())]),
+                                     Node::Paragraph(vec![Node::String("Item 2".to_string())])]};
+    assert_eq!(bullet_list, children[1]);
+
+    let ordered_list =
+        Node::OrderedList{tight: false, start: 2,
+                          items: vec![Node::Paragraph(vec![Node::String("Item 1".to_string())]),
+                                      Node::Paragraph(vec![Node::String("Item 2".to_string())])]};
+    assert_eq!(ordered_list, children[2]);
 }
