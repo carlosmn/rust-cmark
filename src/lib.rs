@@ -1,72 +1,93 @@
 extern crate libc;
 
+use std::string;
+
 mod ffi;
 
 #[deriving(Show, PartialEq)]
 pub enum Node {
-    Document(DocumentNode),
+    Document(Vec<Node>),
     BQuote,
-    List,
+    BulletList{tight: bool, items: Vec<Node>},
+    OrderedList{tight: bool, start: uint, items: Vec<Node>},
     ListItem,
     FencedCode,
     IndentedCode,
     HTML,
     Paragraph,
-    AtxHeader{level: uint},
-    SetextHeader{level: uint},
+    AtxHeader(uint, string::String),
+    SetextHeader(uint, string::String),
     HRule,
     ReferenceDef,
     FirstBlock,
     LastBlock,
-    String(String),
+    String(string::String),
     Softbreak,
     Linebreak,
     InlineCode,
     InlineHTML,
     Emph,
     Strong,
-    Link,
+    Link{url: String, title: String},
     Image,
     FirstInline,
     LastInline,
 }
 
 impl Node {
-    fn level(raw: *mut ffi::cmark_node) -> uint {
+    fn children(raw: *mut ffi::cmark_node) -> Vec<Node> {
+        let mut vec = Vec::new();
         unsafe {
-            ffi::cmark_node_get_header_level(raw) as uint
+            let mut ptr = ffi::cmark_node_first_child(raw);
+            while !ptr.is_null() {
+                vec.push(Node::from_raw(ptr));
+                ptr = ffi::cmark_node_next(ptr);
+            }
+        }
+        vec
+    }
+
+    fn new_document(raw: *mut ffi::cmark_node) -> Node {
+        Node::Document(Node::children(raw))
+    }
+
+    fn new_list(raw: *mut ffi::cmark_node) -> Node {
+        let list_type = unsafe { ffi::cmark_node_get_list_type(raw) };
+        let tight = unsafe { ffi::cmark_node_get_list_tight(raw) } != 0;
+        match list_type {
+            ffi::CMARK_ORDERED_LIST => {
+                let start = unsafe { ffi::cmark_node_get_list_start(raw) } as uint;
+                Node::OrderedList{tight: tight, start: start, items: Node::children(raw)}
+            },
+            ffi::CMARK_BULLET_LIST => {
+                Node::BulletList{tight: tight, items: Node::children(raw)}
+            },
+            _ => panic!(),
+        }
+    }
+
+    fn new_header(raw: *mut ffi::cmark_node, kind: u32) -> Node {
+        let child = unsafe { ffi::cmark_node_first_child(raw)};
+        let (level, content) = unsafe {
+            (ffi::cmark_node_get_header_level(raw) as uint,
+             string::raw::from_buf(ffi::cmark_node_get_string_content(child) as *const u8))
+        };
+        match kind {
+            ffi::CMARK_NODE_ATX_HEADER => Node::AtxHeader(level, content),
+            ffi::CMARK_NODE_SETEXT_HEADER => Node::SetextHeader(level, content),
+            _ => panic!(),
         }
     }
 
     fn from_raw(raw: *mut ffi::cmark_node) -> Node {
-        match unsafe { ffi::cmark_node_get_type(raw) } {
-            ffi::CMARK_NODE_DOCUMENT => Node::Document(DocumentNode::from_raw(raw)),
-            ffi::CMARK_NODE_ATX_HEADER => Node::AtxHeader{level: Node::level(raw)},
-            ffi::CMARK_NODE_SETEXT_HEADER => Node::SetextHeader{level: Node::level(raw)},
-            _ => panic!(),
+        let kind = unsafe { ffi::cmark_node_get_type(raw) };
+        match kind {
+            ffi::CMARK_NODE_DOCUMENT => Node::new_document(raw),
+            ffi::CMARK_NODE_ATX_HEADER | ffi::CMARK_NODE_SETEXT_HEADER => Node::new_header(raw, kind),
+            ffi::CMARK_NODE_LIST => Node::new_list(raw),
+            _ => Node::LastBlock,
+            //_ => panic!(),
         }
-    }
-}
-
-#[deriving(Show)]
-pub struct DocumentNode {
-    raw: *mut ffi::cmark_node
-}
-
-impl DocumentNode {
-    pub fn from_raw(raw: *mut ffi::cmark_node) -> DocumentNode {
-        assert!(unsafe { ffi::cmark_node_get_type(raw) } == ffi::CMARK_NODE_DOCUMENT);
-        DocumentNode { raw: raw }
-    }
-
-    pub fn first_child(&self) -> Node {
-        Node::from_raw(unsafe { ffi::cmark_node_first_child(self.raw ) })
-    }
-}
-
-impl PartialEq for DocumentNode {
-    fn eq(&self, other: &DocumentNode) -> bool {
-        self.raw == other.raw
     }
 }
 
@@ -79,9 +100,12 @@ impl Parser {
         Parser { raw: unsafe { ffi::cmark_new_doc_parser() } }
     }
 
-    pub fn parse_document(data: &[u8]) -> DocumentNode {
+    pub fn parse_document(data: &[u8]) -> Node {
         unsafe {
-            DocumentNode {raw: ffi::cmark_parse_document(data.as_ptr(), data.len() as libc::size_t) }
+            let raw = ffi::cmark_parse_document(data.as_ptr(), data.len() as libc::size_t);
+            let node = Node::from_raw(raw);
+            ffi::cmark_free_nodes(raw);
+            node
         }
     }
 }
@@ -116,6 +140,9 @@ fenced
 #[test]
 fn parse_document() {
     let doc = Parser::parse_document(DOCUMENT.as_bytes());
-    let child = doc.first_child();
-    assert_eq!(Node::AtxHeader{ level: 2 }, child);
+    let children = match doc {
+        Node::Document(ref children) => children,
+        _ => panic!(),
+    };
+    assert_eq!(Node::AtxHeader(2, "Header".to_string()), children[0]);
 }
