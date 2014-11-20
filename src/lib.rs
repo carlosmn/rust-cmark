@@ -11,8 +11,8 @@ pub enum Node {
     BulletList{tight: bool, items: Vec<Node>},
     OrderedList{tight: bool, start: uint, items: Vec<Node>},
     ListItem,
-    FencedCode,
-    IndentedCode,
+    FencedCode(string::String, string::String),
+    IndentedCode(string::String),
     HTML,
     Paragraph(Vec<Node>),
     AtxHeader(uint, string::String),
@@ -65,14 +65,18 @@ impl Node {
 
     fn new_header(raw: *mut ffi::cmark_node, kind: u32) -> Node {
         let child = unsafe { ffi::cmark_node_first_child(raw)};
-        let (level, content) = unsafe {
-            (ffi::cmark_node_get_header_level(raw) as uint,
-             string::raw::from_buf(ffi::cmark_node_get_string_content(child) as *const u8))
-        };
+        let level = unsafe { ffi::cmark_node_get_header_level(raw) as uint };
+        let content = Node::string_content(child);
         match kind {
             ffi::CMARK_NODE_ATX_HEADER => Node::AtxHeader(level, content),
             ffi::CMARK_NODE_SETEXT_HEADER => Node::SetextHeader(level, content),
             _ => panic!(),
+        }
+    }
+
+    fn string_content(raw: *mut ffi::cmark_node) -> String {
+        unsafe {
+            string::raw::from_buf(ffi::cmark_node_get_string_content(raw) as *const u8)
         }
     }
 
@@ -84,10 +88,13 @@ impl Node {
             ffi::CMARK_NODE_LIST => Node::new_list(raw),
             ffi::CMARK_NODE_LIST_ITEM => Node::from_raw(unsafe{ffi::cmark_node_first_child(raw)}),
             ffi::CMARK_NODE_PARAGRAPH => Node::Paragraph(Node::children(raw)),
-            ffi::CMARK_NODE_STRING => {
-                Node::String(unsafe {
-                    string::raw::from_buf(ffi::cmark_node_get_string_content(raw) as *const u8)
-                })
+            ffi::CMARK_NODE_STRING => Node::String(Node::string_content(raw)),
+            ffi::CMARK_NODE_INDENTED_CODE => Node::IndentedCode(unsafe {
+                string::raw::from_buf(ffi::cmark_node_get_string_content(raw) as *const u8)
+            }),
+            ffi::CMARK_NODE_FENCED_CODE => unsafe {
+                Node::FencedCode(string::raw::from_buf(ffi::cmark_node_get_fence_info(raw) as *const u8),
+                                 Node::string_content(raw))
             },
             _ => Node::NotReallyANode,
             //_ => panic!(),
@@ -130,6 +137,7 @@ r####"## Header
 
 3. Item 2
 
+
     code
 
 ``` lang
@@ -160,4 +168,7 @@ fn parse_document() {
                           items: vec![Node::Paragraph(vec![Node::String("Item 1".to_string())]),
                                       Node::Paragraph(vec![Node::String("Item 2".to_string())])]};
     assert_eq!(ordered_list, children[2]);
+
+    assert_eq!(Node::IndentedCode("code\n".to_string()), children[3]);
+    assert_eq!(Node::FencedCode("lang".to_string(), "fenced\n".to_string()), children[4]);
 }
