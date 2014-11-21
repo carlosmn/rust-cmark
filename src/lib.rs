@@ -1,6 +1,9 @@
 extern crate libc;
+#[cfg(test)]extern crate test;
 
 use std::string;
+#[cfg(test)] use std::io::File;
+#[cfg(test)] use test::Bencher;
 
 mod ffi;
 
@@ -127,6 +130,17 @@ impl Parser {
         Parser { raw: unsafe { ffi::cmark_new_doc_parser() } }
     }
 
+    pub fn process_line(&mut self, data: &[u8]) {
+        unsafe {
+            ffi::cmark_process_line(self.raw, data.as_ptr(), data.len() as libc::size_t);
+        }
+    }
+
+    pub fn finish(&mut self) -> Node {
+        let root_raw = unsafe { ffi::cmark_finish(self.raw) };
+        Node::from_raw(root_raw)
+    }
+
     pub fn parse_document(data: &[u8]) -> Node {
         unsafe {
             let raw = ffi::cmark_parse_document(data.as_ptr(), data.len() as libc::size_t);
@@ -184,4 +198,12 @@ fn parse_document() {
                             box Node::String("link".to_string()))])
             ]);
     assert_eq!(expected, doc);
+}
+
+#[bench]
+fn parse_progit(b: &mut Bencher) {
+    let doc_contents = File::open(&Path::new("progit.md")).unwrap().read_to_end().unwrap();
+    b.iter(|| {
+        test::black_box(Parser::parse_document(doc_contents.as_slice()));
+    });
 }
