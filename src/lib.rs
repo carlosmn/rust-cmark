@@ -10,27 +10,27 @@ mod ffi;
 #[deriving(Show, PartialEq)]
 pub enum Node {
     Document(Vec<Node>),
-    BQuote,
+    BQuote(Vec<Node>),
     BulletList{tight: bool, items: Vec<Node>},
     OrderedList{tight: bool, start: uint, items: Vec<Node>},
-    ListItem,
+    ListItem(Vec<Node>),
     FencedCode(string::String, string::String),
     IndentedCode(string::String),
     HTML(string::String),
     Paragraph(Vec<Node>),
-    AtxHeader(uint, string::String),
-    SetextHeader(uint, string::String),
+    AtxHeader(uint, Vec<Node>),
+    SetextHeader(uint, Vec<Node>),
     HRule,
     ReferenceDef,
     String(string::String),
     Softbreak,
     Linebreak,
     InlineCode(string::String),
-    InlineHTML,
+    InlineHTML(string::String),
     Emph(Vec<Node>),
     Strong(Vec<Node>),
-    Link(string::String, Option<string::String>, Box<Node>),
-    Image,
+    Link(Option<string::String>, Option<string::String>, Vec<Node>),
+    Image(Option<string::String>, Option<string::String>, Vec<Node>),
     FirstInline,
     LastInline,
     NotReallyANode,
@@ -65,9 +65,8 @@ impl Node {
     }
 
     fn new_header(raw: *mut ffi::cmark_node, kind: u32) -> Node {
-        let child = unsafe { ffi::cmark_node_first_child(raw)};
         let level = unsafe { ffi::cmark_node_get_header_level(raw) as uint };
-        let content = Node::string_content(child);
+        let content = Node::children(raw);
         match kind {
             ffi::CMARK_NODE_ATX_HEADER => Node::AtxHeader(level, content),
             ffi::CMARK_NODE_SETEXT_HEADER => Node::SetextHeader(level, content),
@@ -87,13 +86,16 @@ impl Node {
             ffi::CMARK_NODE_DOCUMENT => Node::Document(Node::children(raw)),
             ffi::CMARK_NODE_ATX_HEADER | ffi::CMARK_NODE_SETEXT_HEADER => Node::new_header(raw, kind),
             ffi::CMARK_NODE_LIST => Node::new_list(raw),
-            ffi::CMARK_NODE_LIST_ITEM => Node::from_raw(unsafe{ffi::cmark_node_first_child(raw)}),
+            ffi::CMARK_NODE_LIST_ITEM => Node::ListItem(Node::children(raw)),
             ffi::CMARK_NODE_PARAGRAPH => Node::Paragraph(Node::children(raw)),
             ffi::CMARK_NODE_STRING => Node::String(Node::string_content(raw)),
             ffi::CMARK_NODE_INLINE_CODE => Node::InlineCode(Node::string_content(raw)),
+            ffi::CMARK_NODE_INLINE_HTML => Node::InlineHTML(Node::string_content(raw)),
             ffi::CMARK_NODE_EMPH => Node::Emph(Node::children(raw)),
             ffi::CMARK_NODE_STRONG => Node::Strong(Node::children(raw)),
+            ffi::CMARK_NODE_BQUOTE => Node::BQuote(Node::children(raw)),
             ffi::CMARK_NODE_SOFTBREAK => Node::Softbreak,
+            ffi::CMARK_NODE_LINEBREAK => Node::Linebreak,
             ffi::CMARK_NODE_HRULE => Node::HRule,
             ffi::CMARK_NODE_REFERENCE_DEF => Node::ReferenceDef,
             ffi::CMARK_NODE_INDENTED_CODE => Node::IndentedCode(unsafe {
@@ -104,9 +106,14 @@ impl Node {
                                  Node::string_content(raw))
             },
             ffi::CMARK_NODE_HTML => Node::HTML(Node::string_content(raw)),
-            ffi::CMARK_NODE_LINK => {
+            ffi::CMARK_NODE_LINK | ffi::CMARK_NODE_IMAGE => {
                 let url = unsafe {
-                    string::raw::from_buf(ffi::cmark_node_get_url(raw) as *const u8)
+                    let ptr = ffi::cmark_node_get_url(raw) as *const u8;
+                    if ptr.is_null() {
+                        None
+                    } else {
+                        Some(string::raw::from_buf(ptr))
+                    }
                 };
                 let title = unsafe {
                     let ptr = ffi::cmark_node_get_title(raw) as *const u8;
@@ -116,10 +123,12 @@ impl Node {
                         Some(string::raw::from_buf(ptr))
                     }
                 };
-                let child = unsafe { ffi::cmark_node_first_child(raw) };
-                Node::Link(url, title, box Node::from_raw(child))
+                if kind == ffi::CMARK_NODE_LINK {
+                    Node::Link(url, title, Node::children(raw))
+                } else {
+                    Node::Image(url, title, Node::children(raw))
+                }
             },
-            //_ => Node::NotReallyANode,
             _ => panic!("unimplemented {}", kind),
         }
     }
@@ -187,21 +196,27 @@ fenced
 fn parse_document() {
     let doc = Parser::parse_document(DOCUMENT.as_bytes());
     let expected = Node::Document(vec![
-        Node::AtxHeader(2, "Header".to_string()),
+        Node::AtxHeader(2, vec![Node::String("Header".to_string())]),
         Node::BulletList{tight: true,
-                         items: vec![Node::Paragraph(vec![Node::String("Item 1".to_string())]),
-                                     Node::Paragraph(vec![Node::String("Item 2".to_string())])]},
+                         items: vec![Node::ListItem(vec![Node::Paragraph(vec![Node::String("Item 1".to_string())])]),
+                                     Node::ListItem(vec![Node::Paragraph(vec![Node::String("Item 2".to_string())])])]},
         Node::OrderedList{tight: false, start: 2,
-                          items: vec![Node::Paragraph(vec![Node::String("Item 1".to_string())]),
-                                      Node::Paragraph(vec![Node::String("Item 2".to_string())])]},
+                          items: vec![Node::ListItem(vec![Node::Paragraph(vec![Node::String("Item 1".to_string())])]),
+                                      Node::ListItem(vec![Node::Paragraph(vec![Node::String("Item 2".to_string())])])]},
         Node::IndentedCode("code\n".to_string()),
         Node::FencedCode("lang".to_string(), "fenced\n".to_string()),
         Node::HTML("<div>html</div>\n".to_string()),
         Node::Paragraph(
-            vec![Node::Link("url".to_string(), Some("title".to_string()),
-                            box Node::String("link".to_string()))])
+            vec![Node::Link(Some("url".to_string()), Some("title".to_string()),
+                            vec![Node::String("link".to_string())])])
             ]);
     assert_eq!(expected, doc);
+}
+
+#[test]
+fn leak_check() {
+    let doc_contents = File::open(&Path::new("leakcheck.md")).unwrap().read_to_end().unwrap();
+    test::black_box(Parser::parse_document(doc_contents.as_slice()));
 }
 
 #[bench]
