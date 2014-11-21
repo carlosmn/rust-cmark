@@ -22,15 +22,13 @@ pub enum Node {
     SetextHeader(uint, string::String),
     HRule,
     ReferenceDef,
-    FirstBlock,
-    LastBlock,
     String(string::String),
     Softbreak,
     Linebreak,
-    InlineCode,
+    InlineCode(string::String),
     InlineHTML,
-    Emph,
-    Strong,
+    Emph(Vec<Node>),
+    Strong(Vec<Node>),
     Link(string::String, Option<string::String>, Box<Node>),
     Image,
     FirstInline,
@@ -92,6 +90,12 @@ impl Node {
             ffi::CMARK_NODE_LIST_ITEM => Node::from_raw(unsafe{ffi::cmark_node_first_child(raw)}),
             ffi::CMARK_NODE_PARAGRAPH => Node::Paragraph(Node::children(raw)),
             ffi::CMARK_NODE_STRING => Node::String(Node::string_content(raw)),
+            ffi::CMARK_NODE_INLINE_CODE => Node::InlineCode(Node::string_content(raw)),
+            ffi::CMARK_NODE_EMPH => Node::Emph(Node::children(raw)),
+            ffi::CMARK_NODE_STRONG => Node::Strong(Node::children(raw)),
+            ffi::CMARK_NODE_SOFTBREAK => Node::Softbreak,
+            ffi::CMARK_NODE_HRULE => Node::HRule,
+            ffi::CMARK_NODE_REFERENCE_DEF => Node::ReferenceDef,
             ffi::CMARK_NODE_INDENTED_CODE => Node::IndentedCode(unsafe {
                 string::raw::from_buf(ffi::cmark_node_get_string_content(raw) as *const u8)
             }),
@@ -115,8 +119,8 @@ impl Node {
                 let child = unsafe { ffi::cmark_node_first_child(raw) };
                 Node::Link(url, title, box Node::from_raw(child))
             },
-            _ => Node::NotReallyANode,
-            //_ => panic!(),
+            //_ => Node::NotReallyANode,
+            _ => panic!("unimplemented {}", kind),
         }
     }
 }
