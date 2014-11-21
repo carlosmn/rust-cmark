@@ -31,9 +31,6 @@ pub enum Node {
     Strong(Vec<Node>),
     Link(Option<string::String>, Option<string::String>, Vec<Node>),
     Image(Option<string::String>, Option<string::String>, Vec<Node>),
-    FirstInline,
-    LastInline,
-    NotReallyANode,
 }
 
 impl Node {
