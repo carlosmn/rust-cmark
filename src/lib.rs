@@ -220,6 +220,16 @@ fn leak_check() {
 fn parse_progit(b: &mut Bencher) {
     let doc_contents = File::open(&Path::new("progit.md")).unwrap().read_to_end().unwrap();
     b.iter(|| {
-        test::black_box(Parser::parse_document(doc_contents.as_slice()));
+        let doc = Parser::parse_document(doc_contents.as_slice());
+        test::black_box(doc);
+    });
+}
+
+#[bench]
+fn bench_leakcheck(b: &mut Bencher) {
+    let doc_contents = File::open(&Path::new("leakcheck.md")).unwrap().read_to_end().unwrap();
+    b.iter(|| {
+        let doc = Parser::parse_document(doc_contents.as_slice());
+        test::black_box(doc);
     });
 }
