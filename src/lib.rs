@@ -73,7 +73,7 @@ impl Node {
 
     fn string_content(raw: *mut ffi::cmark_node) -> String {
         unsafe {
-            string::raw::from_buf(ffi::cmark_node_get_string_content(raw) as *const u8)
+            String::from_raw_buf(ffi::cmark_node_get_string_content(raw) as *const u8)
         }
     }
 
@@ -96,10 +96,10 @@ impl Node {
             ffi::CMARK_NODE_HRULE => Node::HRule,
             ffi::CMARK_NODE_REFERENCE_DEF => Node::ReferenceDef,
             ffi::CMARK_NODE_INDENTED_CODE => Node::IndentedCode(unsafe {
-                string::raw::from_buf(ffi::cmark_node_get_string_content(raw) as *const u8)
+                String::from_raw_buf(ffi::cmark_node_get_string_content(raw) as *const u8)
             }),
             ffi::CMARK_NODE_FENCED_CODE => unsafe {
-                Node::FencedCode(string::raw::from_buf(ffi::cmark_node_get_fence_info(raw) as *const u8),
+                Node::FencedCode(String::from_raw_buf(ffi::cmark_node_get_fence_info(raw) as *const u8),
                                  Node::string_content(raw))
             },
             ffi::CMARK_NODE_HTML => Node::HTML(Node::string_content(raw)),
@@ -109,7 +109,7 @@ impl Node {
                     if ptr.is_null() {
                         None
                     } else {
-                        Some(string::raw::from_buf(ptr))
+                        Some(String::from_raw_buf(ptr))
                     }
                 };
                 let title = unsafe {
@@ -117,7 +117,7 @@ impl Node {
                     if ptr.is_null() {
                         None
                     } else {
-                        Some(string::raw::from_buf(ptr))
+                        Some(String::from_raw_buf(ptr))
                     }
                 };
                 if kind == ffi::CMARK_NODE_LINK {
