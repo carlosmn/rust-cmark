@@ -7,4 +7,3 @@ authors = ["Carlos Martín Nieto <cmn@dwim.me>"]
 [lib]
 name = "cmark"
 path = "src/lib.rs"
-crate_type = ["dylib"]
